@@ -6,6 +6,7 @@ Rien à installer.
 index.html                 la page (styles, logique, polices, logo)
 assets/prospects/*.jpg     les portraits des prospects
 api/claude.mjs             la fonction serverless qui parle à l'API Anthropic
+api/tts.mjs                la voix du prospect, synthèse neuronale OpenAI
 package.json               déclare le projet en module ES (nécessaire à Vercel)
 ```
 
@@ -18,7 +19,8 @@ Crée un dépôt GitHub et pousse le tout **en gardant l'arborescence**. `api/cl
 1. vercel.com → *Add New… → Project* → importe le dépôt.
 2. Framework Preset : **Other**. Pas de build command, pas d'output directory.
 3. *Settings → Environment Variables* :
-   - `ANTHROPIC_API_KEY` = ta clé (console.anthropic.com → API keys)
+   - `ANTHROPIC_API_KEY` = ta clé Anthropic (console.anthropic.com → API keys)
+   - `OPENAI_API_KEY` = ta clé OpenAI, pour la voix (platform.openai.com → API keys). Sans elle, le simulateur retombe sur la voix du navigateur, sans planter.
    - `ACCESS_CODE` = *(optionnel)* un mot de passe partagé, voir plus bas
 4. Deploy. La page est en ligne, le simulateur fonctionne.
 
@@ -48,3 +50,13 @@ Mets aussi une **limite de dépense mensuelle** dans la console Anthropic (Setti
 ## 5. Modifier le contenu
 
 Les profils de prospects (métiers, tempéraments, objections, contextes), les 3 niveaux de challenge et les critères de notation vivent dans le code de l'application. `index.html` est un fichier compilé : pour changer ces listes, demande-moi la modification et je te régénère le fichier — c'est plus sûr qu'une édition à la main dans 2,7 Mo de bundle.
+
+
+## La voix du prospect
+
+Deux niveaux, l'outil choisit tout seul :
+
+1. **Voix neuronale OpenAI**, si `OPENAI_API_KEY` est présente. C'est celle qui sonne humaine, et elle marche sur tous les navigateurs, Safari inclus. Modèle `gpt-4o-mini-tts`, environ 15 $ par million de caractères : une simulation de 15 minutes coûte quelques centimes. La voix est tirée selon le genre du prénom, et le ton s'adapte au caractère du prospect (pressé, fatigué, méfiant).
+2. **Voix du navigateur**, si la clé manque ou si l'appel échoue. Gratuit, mais robotique sur Safari, correct sur Chrome.
+
+Comme pour Anthropic, pense à fixer une limite de dépense mensuelle dans ton compte OpenAI (Settings → Limits).
