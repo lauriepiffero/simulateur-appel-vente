@@ -164,12 +164,12 @@ function settingsFor(tone) {
   if (has('dominant') || has('orgueilleux')) { stability = 0.40; style = 0.40; }
   if (has('blagueur') || has('chaleureux')) { stability = 0.40; style = 0.45; }
 
-  // le débit : certaines voix de la bibliothèque lisent très lentement au naturel
-  let speed = 1.08;
-  if (has('pressé')) speed = 1.15;
-  if (has('épuisé')) speed = 1.0;
+  // le débit : au-delà de 1.0 le modèle avale des syllabes
+  let speed = 1.0;
+  if (has('pressé')) speed = 1.08;
+  if (has('épuisé')) speed = 0.95;
 
-  return { stability, similarity_boost: 0.85, style, speed, use_speaker_boost: true };
+  return { stability: Math.min(0.85, stability + 0.12), similarity_boost: 0.9, style, speed, use_speaker_boost: true };
 }
 
 // Le numéro de téléphone : écrit en chiffres, ElevenLabs découpe mal les dizaines
@@ -192,17 +192,30 @@ function deuxChiffres(n) {
   return base + '-' + UNITS[r];
 }
 
+function ponctuer(s) {
+  let t = String(s)
+    .replace(/\u2026/g, '.')
+    .replace(/\.{2,}/g, '.')
+    .replace(/([!?]){2,}/g, '$1')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/([,;:])(?=\S)/g, '$1 ')
+    .replace(/^[\s,;:.]+/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (t && !/[.!?]$/.test(t)) t += '.';
+  return t;
+}
+
 function lireNumeros(text) {
-  // rires écrits : "ha ha", "haha", "hihi" sont lus lettre à lettre, on les retire
+  // rires écrits : "ha ha", "haha", "hihi" sont lus lettre à lettre, on les retire.
+  // Puis on ponctue : sans point final la voix ne redescend pas, et les points de
+  // suspension ou les doubles ponctuations font avaler les fins de mots.
   const sansRire = String(text)
     .replace(/\b(?:a?ha)(?:\s*-?\s*ha)+h?\b/gi, '')
     .replace(/\b(?:hi){2,}\b/gi, '')
     .replace(/\b(?:h[ée]){2,}\b/gi, '')
-    .replace(/\bmdr\b|\blol\b/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+([,.!?;:])/g, '$1')
-    .trim();
-  return sansRire.replace(/\b0\s*[1-9](?:[\s.\-]*\d{2}){4}\b/g, (m) => {
+    .replace(/\bmdr\b|\blol\b/gi, '');
+  return ponctuer(sansRire).replace(/\b0\s*[1-9](?:[\s.\-]*\d{2}){4}\b/g, (m) => {
     const d = m.replace(/\D/g, '');
     if (d.length !== 10) return m;
     const groupes = [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6), d.slice(6, 8), d.slice(8, 10)];
