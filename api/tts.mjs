@@ -149,8 +149,21 @@ async function detecter(key) {
   }
 }
 
+// Calibrage par voix : certaines de la bibliothèque articulent mal à vitesse
+// normale, d'autres traînent. Ajuste ici plutôt que globalement.
+const CALIBRAGE = {
+  fBpCO0Kf0krKLYGOu65w: { speed: 1.02, stability: 0.55 }, // Émilie
+  YxrwjAKoUKULGd0g8K9Y: { speed: 1.04, stability: 0.55 }, // Lucie
+  FFXYdAYPzn8Tw8KiHZqg: { speed: 1.06, stability: 0.60 }, // Ingrid, traîne un peu
+  CYR0HqHoZAUmoZsLWPob: { speed: 1.00, stability: 0.55 }, // Marco
+  IbbR6Av0dWuQJS0b8JVT: { speed: 1.02, stability: 0.55 }, // Hugo
+  eOwAMwUJEGkP44SKOXIH: { speed: 1.04, stability: 0.58 }, // Julien
+  '1EmYoP3UnnnwhlJKovEy': { speed: 0.98, stability: 0.62 }, // Anthony, articule vite
+  Yklgus9Ssb2mlIsWUxMT: { speed: 1.00, stability: 0.58 }  // Mathieu
+};
+
 // Le ton se règle par les voice_settings : ElevenLabs ignore les consignes en texte.
-function settingsFor(tone) {
+function settingsFor(tone, voiceId) {
   const t = Array.isArray(tone) ? tone : [];
   const has = (k) => t.indexOf(k) !== -1;
   let stability = 0.45;
@@ -168,6 +181,10 @@ function settingsFor(tone) {
   let speed = 1.0;
   if (has('pressé')) speed = 1.08;
   if (has('épuisé')) speed = 0.95;
+
+  const cal = CALIBRAGE[voiceId] || {};
+  if (cal.speed) speed = Math.max(0.8, Math.min(1.2, speed * cal.speed));
+  if (cal.stability) stability = Math.max(stability, cal.stability);
 
   return { stability: Math.min(0.85, stability + 0.12), similarity_boost: 0.9, style, speed, use_speaker_boost: true };
 }
@@ -194,11 +211,16 @@ function deuxChiffres(n) {
 
 function ponctuer(s) {
   let t = String(s)
-    .replace(/\u2026/g, '.')
-    .replace(/\.{2,}/g, '.')
+    // les points de suspension deviennent une virgule : ElevenLabs en fait
+    // sinon un silence de fin de phrase, alors que c'est une hésitation
+    .replace(/\u2026/g, ',')
+    .replace(/\.{3,}/g, ',')
+    .replace(/\.{2}/g, ',')
     .replace(/([!?]){2,}/g, '$1')
     .replace(/\s+([,.!?;:])/g, '$1')
     .replace(/([,;:])(?=\S)/g, '$1 ')
+    .replace(/,\s*,+/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
     .replace(/^[\s,;:.]+/, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -245,7 +267,7 @@ async function synth(key, { text, genre, voiceIndex, tone, voiceId }, res) {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'xi-api-key': key },
-    body: JSON.stringify({ text: lireNumeros(text), model_id: model, language_code: 'fr', voice_settings: settingsFor(tone) })
+    body: JSON.stringify({ text: lireNumeros(text), model_id: model, language_code: 'fr', voice_settings: settingsFor(tone, id) })
   });
 
   if (!r.ok) {
