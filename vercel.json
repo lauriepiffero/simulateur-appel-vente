@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/claude.mjs": { "maxDuration": 60 },
+    "api/tts.mjs": { "maxDuration": 60 }
+  }
+}
