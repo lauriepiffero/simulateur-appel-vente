@@ -17,7 +17,6 @@
 // déclarent savoir lire le français : elles gardent leur accent. D'où cette liste fixe.
 const DEFAUT = {
   f: [
-    ['OhWejZm6c7D8CIm5epRM', 'Irène, calme et posée'],
     ['fBpCO0Kf0krKLYGOu65w', 'Émilie, conseillère clientèle'],
     ['YxrwjAKoUKULGd0g8K9Y', 'Lucie, support'],
     ['FFXYdAYPzn8Tw8KiHZqg', 'Ingrid, chaleureuse']
@@ -165,7 +164,43 @@ function settingsFor(tone) {
   if (has('dominant') || has('orgueilleux')) { stability = 0.40; style = 0.40; }
   if (has('blagueur') || has('chaleureux')) { stability = 0.40; style = 0.45; }
 
-  return { stability, similarity_boost: 0.85, style, use_speaker_boost: true };
+  // le débit : certaines voix de la bibliothèque lisent très lentement au naturel
+  let speed = 1.08;
+  if (has('pressé')) speed = 1.15;
+  if (has('épuisé')) speed = 1.0;
+
+  return { stability, similarity_boost: 0.85, style, speed, use_speaker_boost: true };
+}
+
+// Le numéro de téléphone : écrit en chiffres, ElevenLabs découpe mal les dizaines
+// (93 lu "40 13"). On l'écrit donc en mots avant la synthèse. L'affichage n'est pas touché.
+const UNITS = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix',
+  'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'dix-sept', 'dix-huit', 'dix-neuf'];
+const TENS = ['', '', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante', 'soixante', 'quatre-vingt', 'quatre-vingt'];
+
+function deuxChiffres(n) {
+  if (n < 20) return UNITS[n];
+  if (n < 70 || (n >= 80 && n < 90)) {
+    const d = Math.floor(n / 10), u = n % 10;
+    if (!u) return d === 8 ? 'quatre-vingts' : TENS[d];
+    if (u === 1 && d !== 8) return TENS[d] + ' et un';
+    return TENS[d] + '-' + UNITS[u];
+  }
+  // 70-79 et 90-99
+  const base = n < 90 ? 'soixante' : 'quatre-vingt';
+  const r = n - (n < 90 ? 60 : 80);
+  return base + '-' + UNITS[r];
+}
+
+function lireNumeros(text) {
+  return String(text).replace(/\b0\s*[1-9](?:[\s.\-]*\d{2}){4}\b/g, (m) => {
+    const d = m.replace(/\D/g, '');
+    if (d.length !== 10) return m;
+    const groupes = [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6), d.slice(6, 8), d.slice(8, 10)];
+    return groupes
+      .map((g, i) => (i === 0 ? 'zéro ' + UNITS[Number(g[1])] : deuxChiffres(Number(g))))
+      .join(', ');
+  });
 }
 
 // Synthèse : renvoie le flux audio dès les premiers octets.
@@ -188,7 +223,7 @@ async function synth(key, { text, genre, voiceIndex, tone, voiceId }, res) {
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'xi-api-key': key },
-    body: JSON.stringify({ text, model_id: model, language_code: 'fr', voice_settings: settingsFor(tone) })
+    body: JSON.stringify({ text: lireNumeros(text), model_id: model, language_code: 'fr', voice_settings: settingsFor(tone) })
   });
 
   if (!r.ok) {
