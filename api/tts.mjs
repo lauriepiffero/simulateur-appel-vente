@@ -193,7 +193,16 @@ function deuxChiffres(n) {
 }
 
 function lireNumeros(text) {
-  return String(text).replace(/\b0\s*[1-9](?:[\s.\-]*\d{2}){4}\b/g, (m) => {
+  // rires écrits : "ha ha", "haha", "hihi" sont lus lettre à lettre, on les retire
+  const sansRire = String(text)
+    .replace(/\b(?:a?ha)(?:\s*-?\s*ha)+h?\b/gi, '')
+    .replace(/\b(?:hi){2,}\b/gi, '')
+    .replace(/\b(?:h[ée]){2,}\b/gi, '')
+    .replace(/\bmdr\b|\blol\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .trim();
+  return sansRire.replace(/\b0\s*[1-9](?:[\s.\-]*\d{2}){4}\b/g, (m) => {
     const d = m.replace(/\D/g, '');
     if (d.length !== 10) return m;
     const groupes = [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6), d.slice(6, 8), d.slice(8, 10)];
