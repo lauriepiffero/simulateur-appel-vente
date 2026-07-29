@@ -104,11 +104,63 @@ function settingsFor(tone) {
   return { stability, similarity_boost: 0.85, style, use_speaker_boost: true };
 }
 
+// Synthèse : renvoie le flux audio dès les premiers octets.
+async function synth(key, { text, genre, voiceIndex, tone, voiceId }, res) {
+  const voices = await loadVoices(key);
+  const pool = genre === 'h' ? voices.h : voices.f;
+  const idx = Number.isFinite(voiceIndex) ? Math.abs(Math.trunc(voiceIndex)) : 0;
+  const id = voiceId || pool[idx % pool.length];
+  const model = process.env.ELEVENLABS_MODEL || 'eleven_turbo_v2_5';
+
+  const url = 'https://api.elevenlabs.io/v1/text-to-speech/' + id + '/stream'
+    + '?output_format=mp3_44100_128&optimize_streaming_latency=3';
+
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'xi-api-key': key },
+    body: JSON.stringify({ text, model_id: model, language_code: 'fr', voice_settings: settingsFor(tone) })
+  });
+
+  if (!r.ok) {
+    const detail = (await r.text()).slice(0, 300);
+    return res.status(r.status).json({ error: detail || 'Erreur ElevenLabs' });
+  }
+
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Cache-Control', 'no-store');
+
+  // on relaie le flux au navigateur au fur et à mesure
+  const reader = r.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    res.write(Buffer.from(value));
+  }
+  return res.end();
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) return res.status(500).json({ error: 'ELEVENLABS_API_KEY manquante côté serveur' });
+
+  // Lecture directe en GET : le navigateur streame l'audio, la voix démarre plus vite.
+  if (req.method === 'GET' && req.query && req.query.text) {
+    if (process.env.ACCESS_CODE && req.query.code !== process.env.ACCESS_CODE) {
+      return res.status(401).json({ error: 'Code d\'accès invalide' });
+    }
+    try {
+      return await synth(key, {
+        text: String(req.query.text).slice(0, 1500),
+        genre: req.query.genre === 'h' ? 'h' : 'f',
+        voiceIndex: Number(req.query.i),
+        tone: String(req.query.tone || '').split(',').filter(Boolean)
+      }, res);
+    } catch (e) {
+      return res.status(502).json({ error: 'ElevenLabs injoignable : ' + (e && e.message) });
+    }
+  }
 
   // Diagnostic : /api/tts?list=1
   if (req.method === 'GET') {
@@ -135,33 +187,14 @@ export default async function handler(req, res) {
   const text = String(body.text || '').slice(0, 1500);
   if (!text.trim()) return res.status(400).json({ error: 'text requis' });
 
-  const voices = await loadVoices(key);
-  const pool = body.genre === 'h' ? voices.h : voices.f;
-  const idx = Number.isFinite(body.voiceIndex) ? Math.abs(Math.trunc(body.voiceIndex)) : 0;
-  const voiceId = body.voiceId || pool[idx % pool.length];
-  const model = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
-
   try {
-    const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + voiceId + '?output_format=mp3_44100_128', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'xi-api-key': key },
-      body: JSON.stringify({
-        text,
-        model_id: model,
-        language_code: 'fr',
-        voice_settings: settingsFor(body.tone)
-      })
-    });
-
-    if (!r.ok) {
-      const detail = (await r.text()).slice(0, 300);
-      return res.status(r.status).json({ error: detail || 'Erreur ElevenLabs' });
-    }
-
-    const buf = Buffer.from(await r.arrayBuffer());
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).send(buf);
+    return await synth(key, {
+      text,
+      genre: body.genre === 'h' ? 'h' : 'f',
+      voiceIndex: body.voiceIndex,
+      tone: body.tone,
+      voiceId: body.voiceId
+    }, res);
   } catch (e) {
     return res.status(502).json({ error: 'ElevenLabs injoignable : ' + (e && e.message) });
   }
