@@ -2,7 +2,7 @@
 //
 // Variable requise : ELEVENLABS_API_KEY
 // Optionnelles : ACCESS_CODE (même code que /api/claude)
-//                ELEVENLABS_MODEL (par défaut eleven_turbo_v2_5)
+//                ELEVENLABS_MODEL (par défaut eleven_multilingual_v2 ; eleven_turbo_v2_5 = plus rapide, plus plat)
 //                ELEVENLABS_VOICES_F / ELEVENLABS_VOICES_H
 //                  (identifiants séparés par des virgules, pour forcer tes propres voix)
 //
@@ -12,7 +12,25 @@
 //
 // Diagnostic : ouvre /api/tts?list=1 sur ton site pour voir les voix détectées.
 
-// Pas de repli anglophone : mieux vaut une erreur claire qu'un accent qui casse l'illusion.
+// Voix françaises natives choisies dans la bibliothèque du compte.
+// La détection automatique laissait passer des voix américaines et britanniques qui
+// déclarent savoir lire le français : elles gardent leur accent. D'où cette liste fixe.
+const DEFAUT = {
+  f: [
+    ['OhWejZm6c7D8CIm5epRM', 'Irène, calme et posée'],
+    ['fBpCO0Kf0krKLYGOu65w', 'Émilie, conseillère clientèle'],
+    ['YxrwjAKoUKULGd0g8K9Y', 'Lucie, support'],
+    ['FFXYdAYPzn8Tw8KiHZqg', 'Ingrid, chaleureuse']
+  ],
+  h: [
+    ['CYR0HqHoZAUmoZsLWPob', 'Marco, parisien'],
+    ['IbbR6Av0dWuQJS0b8JVT', 'Hugo, posé'],
+    ['eOwAMwUJEGkP44SKOXIH', 'Julien, service client'],
+    ['1EmYoP3UnnnwhlJKovEy', 'Anthony, parisien'],
+    ['Yklgus9Ssb2mlIsWUxMT', 'Mathieu, France']
+  ]
+};
+
 const FALLBACK = { f: [], h: [] };
 
 // Accents francophones non hexagonaux, écartés par défaut.
@@ -67,8 +85,31 @@ async function loadVoices(key) {
 
   const envF = (process.env.ELEVENLABS_VOICES_F || '').split(',').map(s => s.trim()).filter(Boolean);
   const envH = (process.env.ELEVENLABS_VOICES_H || '').split(',').map(s => s.trim()).filter(Boolean);
+  const names = {};
+  DEFAUT.f.concat(DEFAUT.h).forEach(([id, nom]) => { names[id] = nom; });
+  envF.concat(envH).forEach(id => { if (!names[id]) names[id] = id; });
+
+  cache = {
+    at: Date.now(),
+    f: envF.length ? envF : DEFAUT.f.map(x => x[0]),
+    h: envH.length ? envH : DEFAUT.h.map(x => x[0]),
+    names,
+    ecartees: [],
+    source: (envF.length || envH.length) ? 'voix imposées par les variables' : 'voix françaises natives, liste fixe'
+  };
+  return cache;
+}
+
+// Conservé pour le diagnostic seulement.
+async function detecter(key) {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache;
+
+  const envF = (process.env.ELEVENLABS_VOICES_F || '').split(',').map(s => s.trim()).filter(Boolean);
+  const envH = (process.env.ELEVENLABS_VOICES_H || '').split(',').map(s => s.trim()).filter(Boolean);
   if (envF.length || envH.length) {
-    cache = { at: Date.now(), f: envF.length ? envF : FALLBACK.f, h: envH.length ? envH : FALLBACK.h, names: {}, source: 'variables' };
+    const names = {};
+    envF.concat(envH).forEach(id => { names[id] = id; });
+    cache = { at: Date.now(), f: envF, h: envH, names, ecartees: [], source: 'variables' };
     return cache;
   }
 
@@ -139,7 +180,7 @@ async function synth(key, { text, genre, voiceIndex, tone, voiceId }, res) {
   }
   const idx = Number.isFinite(voiceIndex) ? Math.abs(Math.trunc(voiceIndex)) : 0;
   const id = voiceId || pool[idx % pool.length];
-  const model = process.env.ELEVENLABS_MODEL || 'eleven_turbo_v2_5';
+  const model = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
 
   const url = 'https://api.elevenlabs.io/v1/text-to-speech/' + id + '/stream'
     + '?output_format=mp3_44100_128&optimize_streaming_latency=3';
@@ -197,12 +238,27 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     cache = null;
     const v = await loadVoices(key);
+    let toutes = [];
+    try {
+      const r = await fetch('https://api.elevenlabs.io/v1/voices?page_size=100', { headers: { 'xi-api-key': key } });
+      const d = await r.json();
+      toutes = (d.voices || []).map(x => ({
+        id: x.voice_id,
+        nom: x.name,
+        genre: (x.labels && x.labels.gender) || '?',
+        accent: (x.labels && x.labels.accent) || '?',
+        langue: (x.labels && x.labels.language) || '?',
+        usage: (x.labels && x.labels.use_case) || '?'
+      }));
+    } catch (e) {}
     return res.status(200).json({
+      mode: v.source === 'variables' ? 'voix imposées par ELEVENLABS_VOICES_F / _H' : 'détection automatique',
       source: v.source,
-      modele: process.env.ELEVENLABS_MODEL || 'eleven_turbo_v2_5',
-      femmes: v.f.map(id => ({ id, nom: v.names[id] || id })),
-      hommes: v.h.map(id => ({ id, nom: v.names[id] || id })),
-      ecartees_accent_non_hexagonal: v.ecartees || []
+      modele: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
+      utilisees_femmes: v.f.map(id => ({ id, nom: v.names[id] || id })),
+      utilisees_hommes: v.h.map(id => ({ id, nom: v.names[id] || id })),
+      ecartees_accent_non_hexagonal: v.ecartees || [],
+      TOUTE_MA_BIBLIOTHEQUE: toutes
     });
   }
 
